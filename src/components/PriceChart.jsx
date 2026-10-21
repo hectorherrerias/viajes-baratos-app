@@ -1,5 +1,6 @@
-// Gráfico de evolución de precios en SVG puro (sin librerías), interactivo:
+// Gráfico de precios en SVG puro (sin librerías), interactivo:
 // arrastra o pasa el dedo por encima para ver el precio de cada día.
+// data: [{ date: Date, price: number }]; markIndex: punto destacado (p. ej. tu fecha)
 import { useId, useMemo, useRef, useState } from 'react'
 import { useApp } from '../context/AppContext'
 
@@ -7,7 +8,7 @@ const W = 340
 const H = 150
 const PAD = { t: 16, r: 8, b: 22, l: 8 }
 
-export function PriceChart({ data }) {
+export function PriceChart({ data, markIndex, restLabel = 'Hoy' }) {
   const { price } = useApp()
   const gradId = useId()
   const svgRef = useRef(null)
@@ -41,15 +42,16 @@ export function PriceChart({ data }) {
     setHover(Math.max(0, Math.min(data.length - 1, i)))
   }
 
-  const active = hover != null ? pts[hover] : pts.at(-1)
-  const fmtDate = (d) => d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })
+  const rest = markIndex != null && pts[markIndex] ? markIndex : pts.length - 1
+  const active = hover != null ? pts[hover] : pts[rest]
+  const fmtDate = (d) => d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', weekday: 'short', timeZone: 'UTC' })
 
   return (
     <div>
       <div className="mb-2 flex items-baseline justify-between">
         <div>
           <p className="text-2xl font-extrabold">{price(active.price)}</p>
-          <p className="text-xs text-slate-500">{hover != null ? fmtDate(active.date) : 'Hoy'}</p>
+          <p className="text-xs text-slate-500">{hover != null ? fmtDate(active.date) : `${restLabel} · ${fmtDate(active.date)}`}</p>
         </div>
         <div className="text-right text-xs text-slate-500">
           <p>
@@ -67,7 +69,7 @@ export function PriceChart({ data }) {
         onPointerDown={handleMove}
         onPointerLeave={() => setHover(null)}
         role="img"
-        aria-label={`Evolución del precio: mínimo ${price(min)}, máximo ${price(max)}, actual ${price(pts.at(-1).price)}`}
+        aria-label={`Precios: mínimo ${price(min)}, máximo ${price(max)}`}
       >
         <defs>
           <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">

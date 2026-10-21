@@ -2,7 +2,6 @@
 import { useState } from 'react'
 import { House, Search, Heart, Bell, User, MapPin, ChevronDown, Check } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { ORIGINS } from '../data/mockData'
 import { CURRENCIES, cx } from '../lib/format'
 import { BottomSheet } from './ui'
 
@@ -15,8 +14,8 @@ export const TABS = [
 ]
 
 export function BottomNav({ tab, onChange }) {
-  const { favorites, alerts } = useApp()
-  const badges = { favorites: favorites.length, alerts: alerts.filter((a) => a.active && a.current <= a.target).length }
+  const { favorites } = useApp()
+  const badges = { favorites: favorites.length }
 
   return (
     <nav className="absolute inset-x-0 bottom-0 z-40 border-t border-slate-200/70 bg-white/85 pb-safe backdrop-blur-xl dark:border-ink-700 dark:bg-ink-900/85">
@@ -57,9 +56,9 @@ export function BottomNav({ tab, onChange }) {
 
 /** Cabecera con saludo + selectores rápidos de origen y moneda. */
 export function Header({ title, subtitle }) {
-  const { origin, setOrigin, currency, setCurrency } = useApp()
+  const { origin, setOrigin, origins, currency, setCurrency, rates } = useApp()
   const [sheet, setSheet] = useState(null) // 'origin' | 'currency' | null
-  const current = ORIGINS.find((o) => o.code === origin) ?? ORIGINS[0]
+  const current = origins.find((o) => o.code === origin) ?? { code: origin }
 
   return (
     <>
@@ -89,7 +88,7 @@ export function Header({ title, subtitle }) {
 
       <BottomSheet open={sheet === 'origin'} onClose={() => setSheet(null)} title="¿Desde dónde sales?">
         <OptionList
-          options={ORIGINS.map((o) => ({ value: o.code, label: o.city, hint: o.code }))}
+          options={origins.map((o) => ({ value: o.code, label: o.name && o.name !== o.city ? `${o.city} · ${o.name}` : o.city, hint: o.code }))}
           value={origin}
           onChange={(v) => {
             setOrigin(v)
@@ -99,7 +98,7 @@ export function Header({ title, subtitle }) {
       </BottomSheet>
       <BottomSheet open={sheet === 'currency'} onClose={() => setSheet(null)} title="Moneda">
         <OptionList
-          options={Object.entries(CURRENCIES).map(([code, c]) => ({ value: code, label: code, hint: c.symbol }))}
+          options={Object.entries(CURRENCIES).map(([code, c]) => ({ value: code, label: code === 'EUR' || !rates?.[code] ? code : `${code} · 1 € = ${rates[code].toFixed(3)} ${c.symbol}`, hint: c.symbol }))}
           value={currency}
           onChange={(v) => {
             setCurrency(v)

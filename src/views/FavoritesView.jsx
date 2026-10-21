@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { Heart } from 'lucide-react'
 import { useApp } from '../context/AppContext'
 import { Header } from '../components/Navigation'
-import { DealCard, FlightCard, StayCard, TransportCard } from '../components/Cards'
+import { DealCard, FlightCard, TransportCard } from '../components/Cards'
 import { EmptyState, Segmented } from '../components/ui'
 
 export function FavoritesView({ onOpen, onExplore }) {
@@ -20,7 +20,7 @@ export function FavoritesView({ onOpen, onExplore }) {
         <EmptyState
           icon={Heart}
           title="Aún no tienes favoritos"
-          text="Toca el corazón en cualquier chollo, vuelo o alojamiento para guardarlo aquí y comparar más tarde."
+          text="Toca el corazón en cualquier chollo, vuelo o bus para guardarlo aquí y comparar más tarde."
           action="Explorar chollos"
           onAction={onExplore}
         />
@@ -34,20 +34,19 @@ export function FavoritesView({ onOpen, onExplore }) {
                 { value: 'all', label: 'Todo' },
                 { value: 'deal', label: 'Chollos', count: count('deal') },
                 { value: 'flight', label: 'Vuelos', count: count('flight') },
-                { value: 'stay', label: 'Estancias', count: count('stay') },
+                { value: 'transport', label: 'Buses', count: count('transport') },
               ]}
             />
           </div>
-          <div key={type} className="stagger mt-4 space-y-3 px-5">
+          <p className="mt-3 px-5 text-[11px] text-slate-500">Precios del momento en que guardaste cada oferta. Ábrela para ver el precio actualizado.</p>
+          <div key={type} className="stagger mt-3 space-y-3 px-5">
             {list.map((f) =>
               f.type === 'deal' ? (
                 <DealCard key={f.id} deal={f} onOpen={onOpen} />
               ) : f.type === 'flight' ? (
                 <FlightCard key={f.id} flight={f} onOpen={onOpen} />
-              ) : f.type === 'stay' ? (
-                <StayCard key={f.id} stay={f} nights={3} onOpen={onOpen} />
               ) : (
-                <TransportCard key={f.id} item={f} flightCo2={200} onOpen={onOpen} />
+                <TransportCard key={f.id} item={f} onOpen={onOpen} />
               )
             )}
             {list.length === 0 && <EmptyState icon={Heart} title="Nada por aquí" text="No has guardado nada de este tipo todavía." />}

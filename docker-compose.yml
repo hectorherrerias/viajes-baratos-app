@@ -5,7 +5,12 @@ services:
     container_name: viajes-baratos-app
     restart: unless-stopped
     ports:
-      # Puerto del host configurable: APP_PORT=8030 docker compose up -d --build
-      - "${APP_PORT:-8020}:80"
+      # Puerto del host configurable: APP_PORT=3006 docker compose up -d --build
+      - "${APP_PORT:-8020}:3000"
+    volumes:
+      # Histórico de precios registrado por la app (persistente)
+      - ./data:/app/data
     environment:
       - TZ=Europe/Madrid
+      # Aeropuertos que se consultan en segundo plano cada 3 h para construir el histórico
+      - WARM_ORIGINS=${WARM_ORIGINS:-MAD,BCN,VLC,AGP,SVQ,ALC}

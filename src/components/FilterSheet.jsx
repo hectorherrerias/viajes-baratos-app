@@ -1,30 +1,47 @@
 // Hoja de filtros avanzados: presupuesto, tipo de alojamiento, valoración, cancelación
 import { BottomSheet, Chip, Toggle } from './ui'
-import { STAY_TYPES } from '../data/mockData'
+import { STAY_TYPES } from '../data/constants'
 import { useApp } from '../context/AppContext'
 
+export const MAX_FLIGHT = 300
+export const MAX_STAY = 150
+
 export const DEFAULT_FILTERS = {
-  maxFlight: 200,
-  maxStay: 120,
+  maxFlight: MAX_FLIGHT, // ida y vuelta por persona
+  departure: 'any', // franja horaria de salida de la ida
+  maxStay: MAX_STAY, // por noche (se aplica en Booking/Airbnb)
   stayTypes: [], // vacío = todos
   minRating: 0,
   freeCancel: false,
-  directOnly: false,
+}
+
+export const DEPARTURES = {
+  any: { label: 'Cualquiera', from: 0, to: 24 },
+  morning: { label: 'Mañana', from: 6, to: 12 },
+  afternoon: { label: 'Tarde', from: 12, to: 18 },
+  night: { label: 'Noche', from: 18, to: 24 },
+}
+
+/** ¿Sale la ida en la franja elegida? */
+export const inDeparture = (hhmm, key) => {
+  const h = Number(hhmm.slice(0, 2))
+  const d = DEPARTURES[key] ?? DEPARTURES.any
+  return h >= d.from && h < d.to
 }
 
 /** Número de filtros activos (para el badge del botón "Filtros"). */
 export function countActive(f) {
   return (
-    (f.maxFlight < DEFAULT_FILTERS.maxFlight) +
-    (f.maxStay < DEFAULT_FILTERS.maxStay) +
+    (f.maxFlight < MAX_FLIGHT) +
+    (f.departure !== 'any') +
+    (f.maxStay < MAX_STAY) +
     (f.stayTypes.length > 0) +
     (f.minRating > 0) +
-    f.freeCancel +
-    f.directOnly
+    f.freeCancel
   )
 }
 
-export function FilterSheet({ open, onClose, filters, setFilters, resultCount }) {
+export function FilterSheet({ open, onClose, filters, setFilters, resultLabel }) {
   const { price } = useApp()
   const set = (patch) => setFilters((f) => ({ ...f, ...patch }))
   const toggleType = (t) =>
@@ -41,30 +58,43 @@ export function FilterSheet({ open, onClose, filters, setFilters, resultCount })
             Restablecer
           </button>
           <button onClick={onClose} className="flex-1 rounded-2xl bg-brand-500 py-3.5 text-sm font-bold text-white shadow-lg shadow-brand-500/30 active:scale-[0.98]">
-            Ver {resultCount} resultados
+            {resultLabel}
           </button>
         </div>
       }
     >
       <div className="space-y-6 pb-2">
         <Range
-          label="Presupuesto máximo de vuelo"
+          label="Vuelo i/v máximo por persona"
           value={filters.maxFlight}
           min={20}
-          max={200}
+          max={MAX_FLIGHT}
           step={5}
           display={price(filters.maxFlight)}
           onChange={(v) => set({ maxFlight: v })}
         />
         <Range
-          label="Presupuesto máximo por noche"
+          label="Máximo por noche"
           value={filters.maxStay}
           min={10}
-          max={120}
+          max={MAX_STAY}
           step={5}
           display={price(filters.maxStay)}
           onChange={(v) => set({ maxStay: v })}
         />
+
+        <section>
+          <h4 className="mb-2.5 text-sm font-bold">Salida del vuelo de ida</h4>
+          <div className="flex flex-wrap gap-2">
+            {Object.entries(DEPARTURES).map(([k, d]) => (
+              <Chip key={k} active={filters.departure === k} onClick={() => set({ departure: k })}>
+                {d.label}
+              </Chip>
+            ))}
+          </div>
+        </section>
+
+        <p className="-mb-3 border-t border-slate-100 pt-4 text-xs font-bold tracking-wider text-slate-400 uppercase dark:border-ink-700">Alojamiento</p>
 
         <section>
           <h4 className="mb-2.5 text-sm font-bold">Tipo de alojamiento</h4>
@@ -89,11 +119,8 @@ export function FilterSheet({ open, onClose, filters, setFilters, resultCount })
         </section>
 
         <section className="space-y-4">
-          <Row label="Cancelación gratuita" hint="Solo alojamientos reembolsables">
+          <Row label="Cancelación gratuita" hint="Se aplica al buscar en Booking">
             <Toggle label="Cancelación gratuita" checked={filters.freeCancel} onChange={(v) => set({ freeCancel: v })} />
-          </Row>
-          <Row label="Solo vuelos directos" hint="Sin escalas">
-            <Toggle label="Solo vuelos directos" checked={filters.directOnly} onChange={(v) => set({ directOnly: v })} />
           </Row>
         </section>
       </div>

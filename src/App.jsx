@@ -53,7 +53,7 @@ export default function App() {
           <div key={tab} className="animate-fade-up">
             {tab === 'home' && <HomeView onOpen={openDetail} onGoSearch={() => goTab('search')} />}
             {tab === 'favorites' && <FavoritesView onOpen={openDetail} onExplore={() => goTab('home')} />}
-            {tab === 'alerts' && <AlertsView />}
+            {tab === 'alerts' && <AlertsView onOpen={openDetail} />}
             {tab === 'profile' && <ProfileView />}
           </div>
           {/* Buscar se mantiene montado para conservar el formulario y los resultados */}

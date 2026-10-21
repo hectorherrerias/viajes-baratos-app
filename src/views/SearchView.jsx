@@ -1,103 +1,92 @@
-// Buscador avanzado + comparador low-cost (vuelos, alojamiento, transporte)
+// Buscador avanzado + comparador low-cost con precios reales
+// (vuelos Ryanair, buses/trenes FlixBus y enlaces filtrados a Booking/Airbnb/Hostelworld)
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeftRight, CalendarDays, Users, Minus, Plus, Search, SlidersHorizontal, Plane, BedDouble, TrainFront,
-  MapPin, ChevronLeft, ArrowUpDown, Globe, Sparkles, Moon,
+  MapPin, ChevronLeft, ArrowUpDown, Globe, Sparkles, Moon, WifiOff, Info,
 } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { DESTINATIONS, ORIGINS, getMonthlyPrices, searchTrips } from '../data/mockData'
+import { apiUrl, useApi } from '../lib/api'
+import { stayLinks, STAY_TYPES } from '../data/constants'
 import { Header } from '../components/Navigation'
 import { Card, Chip, Segmented, EmptyState } from '../components/ui'
-import { Cover, FlightCard, StayCard, TransportCard } from '../components/Cards'
-import { FilterSheet, DEFAULT_FILTERS, countActive } from '../components/FilterSheet'
-import { cx } from '../lib/format'
+import { Cover, FlightCard, TransportCard, StayProviderCard } from '../components/Cards'
+import { FilterSheet, DEFAULT_FILTERS, MAX_FLIGHT, MAX_STAY, DEPARTURES, countActive, inDeparture } from '../components/FilterSheet'
+import { addDays, cx, fmtDay, fmtMonth, todayIso } from '../lib/format'
 
-const iso = (d) => d.toISOString().slice(0, 10)
-const addDays = (n) => {
-  const d = new Date()
-  d.setDate(d.getDate() + n)
-  return iso(d)
-}
+const SORTS = [
+  { id: 'price', label: 'Precio' },
+  { id: 'date', label: 'Fecha' },
+  { id: 'duration', label: 'Duración' },
+]
 
-const SORTS = {
-  flights: [
-    { id: 'price', label: 'Precio' },
-    { id: 'duration', label: 'Duración' },
-  ],
-  stays: [
-    { id: 'price', label: 'Precio' },
-    { id: 'rating', label: 'Valoración' },
-    { id: 'distance', label: 'Distancia' },
-  ],
-  transport: [
-    { id: 'price', label: 'Precio' },
-    { id: 'duration', label: 'Duración' },
-  ],
+/** Próximos 6 meses en formato YYYY-MM. */
+function nextMonths() {
+  const now = new Date()
+  return Array.from({ length: 6 }, (_, i) => new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + i, 1)).toISOString().slice(0, 7))
 }
 
 export function SearchView({ onOpen, preset }) {
-  const { origin: defaultOrigin } = useApp()
-  const [form, setForm] = useState({
+  const { origin: defaultOrigin, origins } = useApp()
+  const [form, setForm] = useState(() => ({
     origin: defaultOrigin,
     dest: 'ANY',
     dateMode: 'flex', // 'exact' | 'flex'
     flexOpt: 'any', // 'any' | 'month'
-    month: null,
-    out: addDays(21),
-    back: addDays(24),
+    month: nextMonths()[1],
+    out: addDays(todayIso(), 21),
+    back: addDays(todayIso(), 24),
     nights: 3,
     travelers: 1,
-  })
+  }))
   const [query, setQuery] = useState(null)
-  const [loading, setLoading] = useState(false)
   const set = (patch) => setForm((f) => ({ ...f, ...patch }))
 
   // Si cambia el origen global y no hay búsqueda abierta, sincroniza el formulario
   useEffect(() => {
-    if (!query) set({ origin: defaultOrigin })
+    if (!query) set({ origin: defaultOrigin, dest: 'ANY' })
   }, [defaultOrigin]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Permite lanzar una búsqueda desde otras pantallas (p. ej. "Ver opciones")
+  // Permite lanzar una búsqueda desde otras pantallas (p. ej. "Comparar alojamiento y transporte")
   useEffect(() => {
     if (preset) run({ ...form, ...preset })
   }, [preset]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const nights =
-    form.dateMode === 'exact' ? Math.max(1, Math.round((new Date(form.back) - new Date(form.out)) / 864e5)) : form.nights
+  const { data: routes } = useApi(apiUrl('/api/routes', { origin: form.origin }))
+  const monthsUrl = form.dest !== 'ANY' && form.dateMode === 'flex' && form.flexOpt === 'month' ? apiUrl('/api/months', { origin: form.origin, dest: form.dest, nights: form.nights }) : null
+  const { data: monthPrices, loading: monthsLoading } = useApi(monthsUrl)
 
   function run(f = form) {
     setForm(f)
-    setLoading(true)
-    setQuery({ ...f, flex: f.dateMode === 'exact' ? 'exact' : f.flexOpt, date: f.dateMode === 'exact' ? f.out : f.month })
-    setTimeout(() => setLoading(false), 650) // simula la latencia de la API
+    setQuery({
+      origin: f.origin,
+      dest: f.dest,
+      mode: f.dateMode === 'exact' ? 'exact' : f.flexOpt,
+      out: f.dateMode === 'exact' ? f.out : undefined,
+      back: f.dateMode === 'exact' ? f.back : undefined,
+      month: f.dateMode === 'flex' && f.flexOpt === 'month' ? f.month : undefined,
+      nights: f.nights,
+      adults: f.travelers,
+    })
   }
 
   if (query) {
-    return (
-      <Results
-        query={query}
-        nights={nights}
-        loading={loading}
-        onBack={() => setQuery(null)}
-        onOpen={onOpen}
-        onPickDest={(code) => run({ ...form, dest: code })}
-      />
-    )
+    return <Results query={query} onBack={() => setQuery(null)} onOpen={onOpen} onPickDest={(code) => run({ ...form, dest: code })} />
   }
 
-  const months = form.dest !== 'ANY' ? getMonthlyPrices(form.origin, form.dest) : getMonthlyPrices(form.origin, 'LIS')
-  const cheapestMonth = months.reduce((a, b) => (b.price < a.price ? b : a))
+  const months = monthPrices ?? nextMonths().map((month) => ({ month, price: null }))
+  const canSwap = form.dest !== 'ANY' && origins.some((o) => o.code === form.dest)
 
   return (
     <div className="pb-28">
-      <Header title="Buscar" subtitle="Vuelos, alojamiento y transporte" />
+      <Header title="Buscar" subtitle="Vuelos, buses y alojamiento" />
 
-      <div className="space-y-3 px-5 animate-fade-up">
+      <div className="space-y-3 px-5">
         {/* Origen / destino */}
         <Card className="relative p-1">
           <Field icon={MapPin} label="Origen">
-            <select value={form.origin} onChange={(e) => set({ origin: e.target.value })} className="w-full bg-transparent font-bold outline-none">
-              {ORIGINS.map((o) => (
+            <select value={form.origin} onChange={(e) => set({ origin: e.target.value, dest: 'ANY' })} className="w-full bg-transparent font-bold outline-none dark:[color-scheme:dark]">
+              {origins.map((o) => (
                 <option key={o.code} value={o.code}>
                   {o.city} ({o.code})
                 </option>
@@ -105,19 +94,19 @@ export function SearchView({ onOpen, preset }) {
             </select>
           </Field>
           <div className="mx-4 h-px bg-slate-100 dark:bg-ink-700" />
-          <Field icon={Plane} label="Destino">
-            <select value={form.dest} onChange={(e) => set({ dest: e.target.value })} className="w-full bg-transparent font-bold outline-none">
+          <Field icon={Plane} label={routes ? `Destino · ${routes.length} rutas directas` : 'Destino'}>
+            <select value={form.dest} onChange={(e) => set({ dest: e.target.value })} className="w-full bg-transparent font-bold outline-none dark:[color-scheme:dark]">
               <option value="ANY">🌍 Cualquier destino</option>
-              {DESTINATIONS.map((d) => (
+              {(routes ?? []).map((d) => (
                 <option key={d.code} value={d.code}>
-                  {d.city}, {d.country}
+                  {d.city}, {d.country} ({d.code})
                 </option>
               ))}
             </select>
           </Field>
           <button
             aria-label="Intercambiar origen y destino"
-            disabled={form.dest === 'ANY' || !ORIGINS.some((o) => o.code === form.dest)}
+            disabled={!canSwap}
             onClick={() => set({ origin: form.dest, dest: form.origin })}
             className="absolute top-1/2 right-4 grid h-10 w-10 -translate-y-1/2 place-items-center rounded-full border border-slate-200 bg-white text-brand-500 shadow-sm transition active:rotate-180 disabled:opacity-40 dark:border-ink-600 dark:bg-ink-700"
           >
@@ -140,23 +129,23 @@ export function SearchView({ onOpen, preset }) {
           />
           {form.dateMode === 'exact' ? (
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <DateInput label="Ida" value={form.out} min={addDays(0)} onChange={(v) => set({ out: v, back: v > form.back ? v : form.back })} />
-              <DateInput label="Vuelta" value={form.back} min={form.out} onChange={(v) => set({ back: v })} />
+              <DateInput label="Ida" value={form.out} min={addDays(todayIso(), 1)} onChange={(v) => set({ out: v, back: v >= form.back ? addDays(v, 1) : form.back })} />
+              <DateInput label="Vuelta" value={form.back} min={addDays(form.out, 1)} onChange={(v) => set({ back: v })} />
             </div>
           ) : (
             <div className="mt-3 space-y-3">
               <div className="flex gap-2">
-                <Chip active={form.flexOpt === 'any'} onClick={() => set({ flexOpt: 'any', month: null })} icon={Sparkles}>
+                <Chip active={form.flexOpt === 'any'} onClick={() => set({ flexOpt: 'any' })} icon={Sparkles}>
                   Cualquier fecha
                 </Chip>
-                <Chip active={form.flexOpt === 'month'} onClick={() => set({ flexOpt: 'month', month: form.month ?? cheapestMonth.month })} icon={CalendarDays}>
+                <Chip active={form.flexOpt === 'month'} onClick={() => set({ flexOpt: 'month' })} icon={CalendarDays}>
                   Mes más barato
                 </Chip>
               </div>
               {form.flexOpt === 'month' && (
-                <MonthBars months={months} selected={form.month} cheapest={cheapestMonth.month} onSelect={(m) => set({ month: m })} />
+                <MonthBars months={months} loading={monthsLoading} selected={form.month} onSelect={(m) => set({ month: m })} hint={form.dest === 'ANY' ? 'Elige un destino para ver el precio de cada mes' : null} />
               )}
-              <Stepper icon={Moon} label="Noches" value={form.nights} min={1} max={21} onChange={(v) => set({ nights: v })} />
+              <Stepper icon={Moon} label="Noches" value={form.nights} min={1} max={14} onChange={(v) => set({ nights: v })} />
             </div>
           )}
         </Card>
@@ -172,6 +161,9 @@ export function SearchView({ onOpen, preset }) {
         >
           <Search size={19} /> Buscar chollos
         </button>
+        <p className="flex items-start gap-1.5 px-1 text-[11px] text-slate-500">
+          <Info size={13} className="mt-px shrink-0" /> Precios reales de vuelos directos de Ryanair y buses de FlixBus. El alojamiento se busca en Booking, Hostelworld y Airbnb con tus filtros.
+        </p>
       </div>
     </div>
   )
@@ -179,45 +171,68 @@ export function SearchView({ onOpen, preset }) {
 
 // --- Resultados + comparador ------------------------------------------------
 
-function Results({ query, nights, loading, onBack, onOpen, onPickDest }) {
-  const { price } = useApp()
+function Results({ query, onBack, onOpen, onPickDest }) {
+  const { price, cityOf } = useApp()
   const [tab, setTab] = useState('flights')
   const [sort, setSort] = useState('price')
   const [filters, setFilters] = useState(DEFAULT_FILTERS)
   const [sheet, setSheet] = useState(false)
   const set = (patch) => setFilters((f) => ({ ...f, ...patch }))
 
-  const data = useMemo(() => (query.dest === 'ANY' ? null : searchTrips(query)), [query])
+  const isAny = query.dest === 'ANY'
+  const { data, loading, error, reload } = useApi(apiUrl(isAny ? '/api/anywhere' : '/api/trips', { ...query, dest: isAny ? undefined : query.dest }))
 
-  // Explorar "Cualquier destino": ranking de destinos por precio mínimo
-  const explore = useMemo(() => {
-    if (query.dest !== 'ANY') return null
-    return DESTINATIONS.map((d) => {
-      const r = searchTrips({ ...query, dest: d.code })
-      return { ...d, from: Math.min(...r.flights.map((f) => f.price)), stay: Math.min(...r.stays.map((s) => s.price)) }
-    }).sort((a, b) => a.from - b.from)
-  }, [query])
+  const flights = useMemo(() => {
+    if (isAny || !data?.flights) return []
+    const by = {
+      price: (a, b) => a.price - b.price,
+      date: (a, b) => a.outDate.localeCompare(b.outDate),
+      duration: (a, b) => a.duration + a.back.duration - (b.duration + b.back.duration),
+    }[sort]
+    return data.flights
+      .filter((f) => (filters.maxFlight >= MAX_FLIGHT || f.price <= filters.maxFlight) && inDeparture(f.depart, filters.departure))
+      .sort(by)
+  }, [data, filters, sort, isAny])
 
-  const lists = useMemo(() => {
-    if (!data) return null
-    const sorter = (a, b) => (sort === 'rating' ? b.rating - a.rating : (a[sort] ?? a.price) - (b[sort] ?? b.price))
-    const flights = data.flights
-      .filter((f) => (filters.maxFlight >= 200 || f.price <= filters.maxFlight) && (!filters.directOnly || f.stops === 0))
-      .sort(sorter)
-    const stays = data.stays
-      .filter(
-        (s) =>
-          (filters.maxStay >= 120 || s.price <= filters.maxStay) &&
-          (filters.stayTypes.length === 0 || filters.stayTypes.includes(s.kind)) &&
-          s.rating >= filters.minRating &&
-          (!filters.freeCancel || s.freeCancel)
-      )
-      .sort(sorter)
-    const transport = data.transport.filter((t) => filters.maxFlight >= 200 || t.price <= filters.maxFlight).sort(sorter)
-    return { flights, stays, transport }
-  }, [data, filters, sort])
+  const destList = useMemo(() => (isAny && Array.isArray(data) ? data.filter((d) => filters.maxFlight >= MAX_FLIGHT || d.price <= filters.maxFlight) : []), [data, filters, isAny])
+
+  // Fechas de referencia para buses y alojamiento: las elegidas o las del vuelo más barato
+  const best = flights[0] ?? data?.flights?.[0]
+  const checkin = query.mode === 'exact' ? query.out : best?.outDate
+  const checkout = query.mode === 'exact' ? query.back : best?.backDate
+  const destCity = data?.dest?.city
+  const originCity = data?.origin?.city ?? cityOf(query.origin)
+
+  const busUrl = !isAny && destCity && checkin ? apiUrl('/api/buses', { from: originCity, to: destCity, date: checkin, adults: query.adults }) : null
+  const { data: busList, loading: busLoading } = useApi(busUrl)
+  const transport = useMemo(
+    () => (busList ?? []).filter((t) => filters.maxFlight >= MAX_FLIGHT || t.price * 2 <= filters.maxFlight).sort((a, b) => (sort === 'duration' ? a.duration - b.duration : a.price - b.price)),
+    [busList, filters, sort]
+  )
+
+  // Id de ciudad de Hostelworld (su API de sugerencias admite CORS, se consulta desde el navegador)
+  const { data: hwList } = useApi(!isAny && destCity ? `https://prod.apigee.hostelworld.com/legacy-hwapi-service/2.2/suggestions/?text=${encodeURIComponent(destCity)}` : null)
+  const hwCity = Array.isArray(hwList) ? hwList.find((x) => x.type === 'city') : null
+  const hw = hwCity ? { id: hwCity.id, city: hwCity.city.name, country: hwCity.city.country } : null
+  const providers =
+    destCity && checkin
+      ? stayLinks({
+          city: destCity,
+          checkin,
+          checkout,
+          adults: query.adults,
+          maxPrice: filters.maxStay < MAX_STAY ? filters.maxStay : null,
+          types: filters.stayTypes,
+          minRating: filters.minRating,
+          freeCancel: filters.freeCancel,
+          hw,
+        })
+      : []
 
   const active = countActive(filters)
+  const counts = { flights: flights.length, transport: transport.length }
+  const dateLabel =
+    query.mode === 'exact' ? `${fmtDay(query.out)} – ${fmtDay(query.back)}` : query.mode === 'month' ? `Mes más barato (${fmtMonth(query.month)})` : 'Cualquier fecha'
 
   return (
     <div className="pb-28">
@@ -229,154 +244,195 @@ function Results({ query, nights, loading, onBack, onOpen, onPickDest }) {
           </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-base font-extrabold">
-              {query.origin} → {query.dest === 'ANY' ? 'Cualquier destino' : data.dest.city}
+              {originCity} → {isAny ? 'Cualquier destino' : (destCity ?? query.dest)}
             </p>
             <p className="truncate text-xs text-slate-500">
-              {query.flex === 'exact' ? `${query.out} · ${query.back}` : query.flex === 'month' ? `Mes más barato (${query.month})` : 'Cualquier fecha'} ·{' '}
-              {nights} noches · {query.travelers} {query.travelers > 1 ? 'viajeros' : 'viajero'}
+              {dateLabel} · {query.mode === 'exact' ? '' : `${query.nights} noches · `}
+              {query.adults} {query.adults > 1 ? 'viajeros' : 'viajero'}
             </p>
           </div>
         </div>
-        {data && (
-          <>
-            <Segmented
-              className="mt-3"
-              value={tab}
-              onChange={(v) => {
-                setTab(v)
-                setSort('price')
-              }}
-              options={[
-                { value: 'flights', label: 'Vuelos', icon: Plane, count: lists.flights.length },
-                { value: 'stays', label: 'Estancia', icon: BedDouble, count: lists.stays.length },
-                { value: 'transport', label: 'Tierra', icon: TrainFront, count: lists.transport.length },
-              ]}
-            />
-            {/* Filtros rápidos */}
-            <div className="no-scrollbar -mx-5 mt-3 flex gap-2 overflow-x-auto px-5">
-              <Chip icon={SlidersHorizontal} active={active > 0} onClick={() => setSheet(true)}>
-                Filtros{active > 0 && ` · ${active}`}
-              </Chip>
-              <Chip icon={ArrowUpDown} onClick={() => {
-                const opts = SORTS[tab]
-                setSort(opts[(opts.findIndex((o) => o.id === sort) + 1) % opts.length].id)
-              }}>
-                {SORTS[tab].find((o) => o.id === sort)?.label ?? 'Precio'}
-              </Chip>
-              {tab === 'flights' && (
-                <Chip active={filters.directOnly} onClick={() => set({ directOnly: !filters.directOnly })}>Directos</Chip>
-              )}
-              {tab === 'stays' && (
-                <>
-                  <Chip active={filters.freeCancel} onClick={() => set({ freeCancel: !filters.freeCancel })}>Cancelación gratis</Chip>
-                  <Chip active={filters.minRating === 8} onClick={() => set({ minRating: filters.minRating === 8 ? 0 : 8 })}>8+ valoración</Chip>
-                  <Chip active={filters.stayTypes.includes('hostel')} onClick={() => set({ stayTypes: filters.stayTypes.includes('hostel') ? [] : ['hostel'] })}>Hostales</Chip>
-                </>
-              )}
-              {[50, 100].map((b) => (
-                <Chip key={b} active={(tab === 'stays' ? filters.maxStay : filters.maxFlight) === b / (tab === 'stays' ? 2 : 1)}
-                  onClick={() => tab === 'stays'
-                    ? set({ maxStay: filters.maxStay === b / 2 ? DEFAULT_FILTERS.maxStay : b / 2 })
-                    : set({ maxFlight: filters.maxFlight === b ? DEFAULT_FILTERS.maxFlight : b })}>
-                  &lt; {price(tab === 'stays' ? b / 2 : b)}
+        {!isAny && (
+          <Segmented
+            className="mt-3"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'flights', label: 'Vuelos', icon: Plane, count: data ? counts.flights : null },
+              { value: 'stays', label: 'Estancia', icon: BedDouble },
+              { value: 'transport', label: 'Tierra', icon: TrainFront, count: busList ? counts.transport : null },
+            ]}
+          />
+        )}
+        {/* Filtros rápidos */}
+        <div className="no-scrollbar -mx-5 mt-3 flex gap-2 overflow-x-auto px-5">
+          <Chip icon={SlidersHorizontal} active={active > 0} onClick={() => setSheet(true)}>
+            Filtros{active > 0 && ` · ${active}`}
+          </Chip>
+          {!isAny && tab !== 'stays' && (
+            <Chip icon={ArrowUpDown} onClick={() => setSort(SORTS[(SORTS.findIndex((o) => o.id === sort) + 1) % SORTS.length].id)}>
+              {SORTS.find((o) => o.id === sort).label}
+            </Chip>
+          )}
+          {tab === 'stays' && !isAny ? (
+            <>
+              <Chip active={filters.freeCancel} onClick={() => set({ freeCancel: !filters.freeCancel })}>Cancelación gratis</Chip>
+              <Chip active={filters.minRating === 8} onClick={() => set({ minRating: filters.minRating === 8 ? 0 : 8 })}>8+ valoración</Chip>
+              {Object.entries(STAY_TYPES).map(([k, label]) => (
+                <Chip key={k} active={filters.stayTypes.includes(k)} onClick={() => set({ stayTypes: filters.stayTypes.includes(k) ? filters.stayTypes.filter((t) => t !== k) : [...filters.stayTypes, k] })}>
+                  {label}
                 </Chip>
               ))}
-            </div>
-          </>
-        )}
+            </>
+          ) : (
+            <>
+              {[50, 100].map((b) => (
+                <Chip key={b} active={filters.maxFlight === b} onClick={() => set({ maxFlight: filters.maxFlight === b ? MAX_FLIGHT : b })}>
+                  i/v &lt; {price(b, { decimals: 0 })}
+                </Chip>
+              ))}
+              {!isAny && ['morning', 'night'].map((k) => (
+                <Chip key={k} active={filters.departure === k} onClick={() => set({ departure: filters.departure === k ? 'any' : k })}>
+                  Salida {DEPARTURES[k].label.toLowerCase()}
+                </Chip>
+              ))}
+            </>
+          )}
+        </div>
       </div>
 
-      {loading ? (
-        <Skeletons />
-      ) : explore ? (
+      {loading && !data ? (
+        <Skeletons text={isAny ? 'Consultando todas las rutas directas…' : 'Consultando precios reales día a día…'} />
+      ) : error && !data ? (
+        <EmptyState icon={WifiOff} title="No hemos podido consultar los precios" text={error.message} action="Reintentar" onAction={reload} />
+      ) : isAny ? (
         <div className="stagger space-y-3 px-5 pt-2">
           <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
-            <Globe size={14} /> {explore.length} destinos ordenados por precio
+            <Globe size={14} /> {destList.length} destinos ordenados por precio de ida y vuelta
           </p>
-          {explore.map((d) => (
-            <Card key={d.code} role="button" onClick={() => onPickDest(d.code)} className="flex items-center gap-3 overflow-hidden p-2.5 active:scale-[0.99] transition-transform">
+          {destList.map((d) => (
+            <Card key={d.id} role="button" onClick={() => onPickDest(d.code)} className="flex items-center gap-3 overflow-hidden p-2.5 transition-transform active:scale-[0.99]">
               <Cover src={d.image} alt={d.city} className="h-20 w-20 shrink-0 rounded-2xl" />
               <div className="min-w-0 flex-1">
-                <p className="font-bold">{d.city}</p>
-                <p className="text-xs text-slate-500">{d.country}</p>
-                <p className="mt-1 text-xs text-slate-500">Alojamiento desde {price(d.stay)}/noche</p>
+                <p className="truncate font-bold">{d.city}</p>
+                <p className="truncate text-xs text-slate-500">{d.country}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  {fmtDay(d.outDate)} – {fmtDay(d.backDate)} · {d.nights} noches
+                </p>
               </div>
               <div className="pr-2 text-right">
-                <p className="text-[11px] text-slate-500">vuelo desde</p>
-                <p className="text-xl font-extrabold text-brand-600 dark:text-brand-300">{price(d.from)}</p>
+                <p className="text-[11px] text-slate-500">i/v desde</p>
+                <p className="text-xl font-extrabold text-brand-600 dark:text-brand-300">{price(d.price)}</p>
               </div>
             </Card>
           ))}
+          {destList.length === 0 && <EmptyState icon={Globe} title="Sin vuelos para esas fechas" text="Prueba con fechas flexibles o sube el presupuesto." />}
         </div>
       ) : (
         <div className="space-y-3 px-5 pt-2">
-          <ComboSummary data={data} lists={lists} nights={nights} travelers={query.travelers} />
-          <div key={tab + sort} className="stagger space-y-3">
-            {tab === 'flights' && lists.flights.map((f, i) => <FlightCard key={f.id} flight={f} cheapest={sort === 'price' && i === 0} onOpen={onOpen} />)}
-            {tab === 'stays' && lists.stays.map((s) => <StayCard key={s.id} stay={s} nights={nights} onOpen={onOpen} />)}
-            {tab === 'transport' && lists.transport.map((t) => <TransportCard key={t.id} item={t} flightCo2={data.flightCo2} onOpen={onOpen} />)}
-          </div>
-          {lists[tab].length === 0 && (
-            <EmptyState
-              icon={tab === 'transport' ? TrainFront : SlidersHorizontal}
-              title={tab === 'transport' && data.transport.length === 0 ? 'Sin rutas por tierra' : 'Ningún resultado'}
-              text={tab === 'transport' && data.transport.length === 0 ? 'Este destino no tiene conexiones razonables en tren, bus o coche.' : 'Relaja los filtros para ver más opciones.'}
-              action={tab === 'transport' && data.transport.length === 0 ? null : 'Restablecer filtros'}
-              onAction={() => setFilters(DEFAULT_FILTERS)}
-            />
+          <ComboSummary data={data} flight={best} bus={busList?.[0]} travelers={query.adults} maxStay={filters.maxStay < MAX_STAY ? filters.maxStay : null} onTab={setTab} />
+
+          {tab === 'flights' && (
+            <div key={sort} className="stagger space-y-3">
+              {flights.map((f, i) => (
+                <FlightCard key={f.id} flight={f} cheapest={sort === 'price' && i === 0} onOpen={onOpen} />
+              ))}
+              {flights.length === 0 && (
+                <EmptyState
+                  icon={Plane}
+                  title={data?.flights?.length ? 'Ningún vuelo con estos filtros' : 'Sin vuelos en esas fechas'}
+                  text={data?.flights?.length ? 'Relaja los filtros para ver más opciones.' : 'Ryanair no opera esta ruta en esos días. Prueba con fechas flexibles.'}
+                  action={data?.flights?.length ? 'Restablecer filtros' : null}
+                  onAction={() => setFilters(DEFAULT_FILTERS)}
+                />
+              )}
+            </div>
+          )}
+
+          {tab === 'stays' && (
+            <div className="stagger space-y-3">
+              {checkin ? (
+                <>
+                  <p className="text-xs text-slate-500">
+                    Busca alojamiento del <b>{fmtDay(checkin)}</b> al <b>{fmtDay(checkout)}</b> en {destCity} con tus filtros
+                    {filters.maxStay < MAX_STAY && <> (máx. {price(filters.maxStay)}/noche)</>}. Se abre la web del proveedor con precios en directo.
+                  </p>
+                  {providers.map((p) => (
+                    <StayProviderCard key={p.id} provider={p} />
+                  ))}
+                </>
+              ) : (
+                <EmptyState icon={BedDouble} title="Primero elige fechas" text="No hay vuelos disponibles para calcular las fechas de la estancia." />
+              )}
+            </div>
+          )}
+
+          {tab === 'transport' && (
+            <div className="stagger space-y-3">
+              {checkin && <p className="text-xs text-slate-500">Buses y trenes FlixBus de ida el {fmtDay(checkin)} · {originCity} → {destCity}</p>}
+              {busLoading && !busList && <Skeletons text="Consultando FlixBus…" />}
+              {transport.map((t) => (
+                <TransportCard key={t.id} item={t} flightPrice={best?.price} onOpen={onOpen} />
+              ))}
+              {busList && transport.length === 0 && (
+                <EmptyState icon={TrainFront} title="Sin trayectos por tierra" text="FlixBus no tiene conexiones entre estas ciudades para esa fecha." />
+              )}
+            </div>
           )}
         </div>
       )}
 
-      {data && (
-        <FilterSheet open={sheet} onClose={() => setSheet(false)} filters={filters} setFilters={setFilters} resultCount={lists[tab].length} />
-      )}
+      <FilterSheet
+        open={sheet}
+        onClose={() => setSheet(false)}
+        filters={filters}
+        setFilters={setFilters}
+        resultLabel={isAny ? `Ver ${destList.length} destinos` : tab === 'stays' ? 'Aplicar' : `Ver ${tab === 'flights' ? flights.length : transport.length} resultados`}
+      />
     </div>
   )
 }
 
-/** Desglose inteligente: la combinación más barata de vuelo + alojamiento. */
-function ComboSummary({ data, lists, nights, travelers }) {
+/** Desglose: vuelo real más barato + alternativa por tierra + presupuesto de alojamiento. */
+function ComboSummary({ data, flight, bus, travelers, maxStay, onTab }) {
   const { price } = useApp()
-  const flight = [...lists.flights].sort((a, b) => a.price - b.price)[0]
-  const stay = [...lists.stays].sort((a, b) => a.price - b.price)[0]
-  const land = [...lists.transport].sort((a, b) => a.price - b.price)[0]
-  if (!flight || !stay) return null
-
+  if (!flight) return null
   const flightTotal = flight.price * travelers
-  const stayTotal = stay.price * nights
-  const total = flightTotal + stayTotal
-  const pct = Math.round((flightTotal / total) * 100)
+  const stayTotal = maxStay ? maxStay * flight.nights : null
 
   return (
     <Card className="overflow-hidden p-4">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs font-semibold text-slate-500">Viaje completo más barato</p>
-          <p className="text-3xl font-extrabold tracking-tight">{price(total)}</p>
+          <p className="text-xs font-semibold text-slate-500">Vuelo ida y vuelta más barato</p>
+          <p className="text-3xl font-extrabold tracking-tight">{price(flightTotal)}</p>
           <p className="text-xs text-slate-500">
-            {price(total / travelers)} por persona · {nights} noches en {data.dest.city}
+            {travelers > 1 ? `${price(flight.price)} por persona · ` : ''}
+            {fmtDay(flight.outDate)} – {fmtDay(flight.backDate)} · {data.dest?.city}
           </p>
         </div>
         <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-          Mejor combo
+          Precio real
         </span>
       </div>
-      {/* Barra de desglose */}
-      <div className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-slate-100 dark:bg-ink-700">
-        <div className="bg-brand-500" style={{ width: `${pct}%` }} />
-        <div className="bg-cyan-400" style={{ width: `${100 - pct}%` }} />
-      </div>
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-        <Breakdown color="bg-brand-500" icon={Plane} label={`${flight.airline} · ${flight.stops ? '1 escala' : 'directo'}`} value={price(flightTotal)} />
-        <Breakdown color="bg-cyan-400" icon={BedDouble} label={stay.name.replace(` ${data.dest.city}`, '')} value={price(stayTotal)} />
+        <Breakdown color="bg-brand-500" icon={Plane} label={`Ida ${price(flight.outPrice)}`} value={`Vuelta ${price(flight.back.price)}`} />
+        <button onClick={() => onTab('stays')} className="text-left">
+          <Breakdown color="bg-cyan-400" icon={BedDouble} label={`${flight.nights} noches`} value={stayTotal ? `máx. ${price(stayTotal)}` : 'Comparar precios →'} />
+        </button>
       </div>
-      {land && (
-        <p className={cx('mt-3 rounded-xl px-3 py-2 text-xs font-semibold', land.price < flight.price ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-slate-50 text-slate-600 dark:bg-ink-700 dark:text-slate-300')}>
-          {land.price < flight.price
-            ? `💡 Ahorra ${price((flight.price - land.price) * travelers)} yendo en ${land.operator} (${price(land.price)}).`
-            : `Alternativa por tierra desde ${price(land.price)} con ${land.operator}.`}
-        </p>
+      {bus && (
+        <button
+          onClick={() => onTab('transport')}
+          className={cx(
+            'mt-3 w-full rounded-xl px-3 py-2 text-left text-xs font-semibold',
+            bus.price * 2 < flight.price ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300' : 'bg-slate-50 text-slate-600 dark:bg-ink-700 dark:text-slate-300'
+          )}
+        >
+          {bus.price * 2 < flight.price
+            ? `💡 En ${bus.operator} la ida cuesta ${price(bus.price)}: podrías ahorrar yendo por tierra.`
+            : `Alternativa por tierra: ${bus.operator} desde ${price(bus.price)} la ida.`}
+        </button>
       )}
     </Card>
   )
@@ -385,21 +441,22 @@ function ComboSummary({ data, lists, nights, travelers }) {
 function Breakdown({ color, icon: Icon, label, value }) {
   return (
     <div className="flex items-center gap-2 rounded-xl bg-slate-50 p-2 dark:bg-ink-700/60">
-      <span className={cx('h-8 w-1 rounded-full', color)} />
+      <span className={cx('h-8 w-1 shrink-0 rounded-full', color)} />
       <div className="min-w-0">
         <p className="flex items-center gap-1 truncate text-slate-500">
           <Icon size={12} className="shrink-0" /> <span className="truncate">{label}</span>
         </p>
-        <p className="font-bold">{value}</p>
+        <p className="truncate font-bold">{value}</p>
       </div>
     </div>
   )
 }
 
-function Skeletons() {
+function Skeletons({ text }) {
   return (
     <div className="space-y-3 px-5 pt-2">
-      {[0, 1, 2, 3].map((i) => (
+      {text && <p className="animate-pulse text-xs font-semibold text-slate-500">{text}</p>}
+      {[0, 1, 2].map((i) => (
         <div key={i} className="h-28 animate-pulse rounded-3xl bg-slate-200/70 dark:bg-ink-800" />
       ))}
     </div>
@@ -448,28 +505,37 @@ function Stepper({ icon: Icon, label, value, min, max, onChange }) {
   )
 }
 
-/** Mini gráfico de barras con el precio mínimo de cada mes. */
-function MonthBars({ months, selected, cheapest, onSelect }) {
+/** Barras con el precio real más bajo de ida y vuelta de cada mes. */
+function MonthBars({ months, selected, onSelect, loading, hint }) {
   const { price } = useApp()
-  const max = Math.max(...months.map((m) => m.price))
+  const priced = months.filter((m) => m.price != null)
+  const max = Math.max(1, ...priced.map((m) => m.price))
+  const cheapest = priced.length ? priced.reduce((a, b) => (b.price < a.price ? b : a)).month : null
   return (
-    <div className="flex h-32 items-end gap-1.5">
-      {months.map((m) => {
-        const isSel = selected === m.month
-        return (
-          <button key={m.month} onClick={() => onSelect(m.month)} className="flex flex-1 flex-col items-center gap-1">
-            <span className={cx('text-[10px] font-bold', isSel ? 'text-brand-600 dark:text-brand-300' : 'text-slate-400')}>{price(m.price)}</span>
-            <span
-              className={cx(
-                'w-full rounded-lg transition-all',
-                isSel ? 'bg-brand-500' : m.month === cheapest ? 'bg-emerald-400/70' : 'bg-slate-200 dark:bg-ink-600'
-              )}
-              style={{ height: `${(m.price / max) * 72}px` }}
-            />
-            <span className={cx('text-[11px] font-semibold capitalize', isSel ? 'text-slate-900 dark:text-white' : 'text-slate-500')}>{m.month}</span>
-          </button>
-        )
-      })}
+    <div>
+      <div className="flex h-32 items-end gap-1.5">
+        {months.map((m) => {
+          const isSel = selected === m.month
+          const h = m.price != null ? (m.price / max) * 72 : loading ? 30 : 8
+          return (
+            <button key={m.month} onClick={() => onSelect(m.month)} className="flex flex-1 flex-col items-center gap-1">
+              <span className={cx('text-[10px] font-bold', isSel ? 'text-brand-600 dark:text-brand-300' : 'text-slate-400')}>
+                {m.price != null ? price(m.price, { decimals: 0 }) : loading ? '…' : '—'}
+              </span>
+              <span
+                className={cx(
+                  'w-full rounded-lg transition-all',
+                  loading && m.price == null && 'animate-pulse',
+                  isSel ? 'bg-brand-500' : m.month === cheapest ? 'bg-emerald-400/70' : 'bg-slate-200 dark:bg-ink-600'
+                )}
+                style={{ height: `${h}px` }}
+              />
+              <span className={cx('text-[11px] font-semibold capitalize', isSel ? 'text-slate-900 dark:text-white' : 'text-slate-500')}>{fmtMonth(m.month)}</span>
+            </button>
+          )
+        })}
+      </div>
+      {hint && <p className="mt-1 text-center text-[11px] text-slate-400">{hint}</p>}
     </div>
   )
 }

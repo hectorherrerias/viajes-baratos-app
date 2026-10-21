@@ -1,16 +1,13 @@
 // Perfil y preferencias: tema, moneda, origen, notificaciones e instalación PWA
 import { useEffect, useState } from 'react'
-import { Sun, Moon, Monitor, Wallet, MapPin, Bell, Zap, Mail, Smartphone, PiggyBank, Heart, BellRing, ChevronRight, Download, Check } from 'lucide-react'
+import { Sun, Moon, Monitor, Wallet, MapPin, TrendingDown, Zap, Smartphone, PiggyBank, Heart, BellRing, ChevronRight, Download, Check, Plane, Bus, Landmark, Image } from 'lucide-react'
 import { useApp } from '../context/AppContext'
-import { ORIGINS } from '../data/mockData'
 import { CURRENCIES } from '../lib/format'
-import { useLocalStorage } from '../lib/useLocalStorage'
 import { Header, OptionList } from '../components/Navigation'
 import { BottomSheet, Card, Segmented, Toggle } from '../components/ui'
 
 export function ProfileView() {
-  const { theme, setTheme, currency, setCurrency, origin, setOrigin, favorites, alerts, price } = useApp()
-  const [prefs, setPrefs] = useLocalStorage('vb:notif', { push: true, errorFares: true, email: false })
+  const { theme, setTheme, currency, setCurrency, origin, setOrigin, origins, cityOf, rates, favorites, alerts, price, prefs, setPrefs } = useApp()
   const [sheet, setSheet] = useState(null)
   const [installEvt, setInstallEvt] = useState(null)
   const [installed, setInstalled] = useState(() => matchMedia('(display-mode: standalone)').matches)
@@ -31,7 +28,7 @@ export function ProfileView() {
   }, [])
 
   const saved = favorites.reduce((acc, f) => acc + Math.max(0, (f.oldPrice ?? f.price) - f.price), 0)
-  const originCity = ORIGINS.find((o) => o.code === origin)?.city
+  const originCity = cityOf(origin)
 
   return (
     <div className="pb-28">
@@ -49,7 +46,7 @@ export function ProfileView() {
 
         {/* Estadísticas */}
         <div className="grid grid-cols-3 gap-2.5">
-          <Stat icon={PiggyBank} value={price(saved)} label="Ahorro potencial" />
+          <Stat icon={PiggyBank} value={price(saved, { decimals: 0 })} label="Ahorro en favoritos" />
           <Stat icon={Heart} value={favorites.length} label="Favoritos" />
           <Stat icon={BellRing} value={alerts.filter((a) => a.active).length} label="Alertas" />
         </div>
@@ -76,16 +73,20 @@ export function ProfileView() {
         </Group>
 
         {/* Notificaciones */}
-        <Group title="Notificaciones">
-          <Row icon={Bell} label="Notificaciones push">
-            <Toggle label="Notificaciones push" checked={prefs.push} onChange={(v) => setPrefs({ ...prefs, push: v })} />
+        <Group title="Novedades en Alertas">
+          <Row icon={TrendingDown} label="Bajadas de precio">
+            <Toggle label="Bajadas de precio" checked={prefs.drops} onChange={(v) => setPrefs({ ...prefs, drops: v })} />
           </Row>
-          <Row icon={Zap} label="Avisos de Error Fares">
-            <Toggle label="Avisos de Error Fares" checked={prefs.errorFares} onChange={(v) => setPrefs({ ...prefs, errorFares: v })} />
+          <Row icon={Zap} label="Posibles error fares">
+            <Toggle label="Posibles error fares" checked={prefs.errorFares} onChange={(v) => setPrefs({ ...prefs, errorFares: v })} />
           </Row>
-          <Row icon={Mail} label="Resumen semanal por email">
-            <Toggle label="Resumen semanal" checked={prefs.email} onChange={(v) => setPrefs({ ...prefs, email: v })} />
-          </Row>
+        </Group>
+
+        <Group title="Fuentes de datos">
+          <Row icon={Plane} label="Vuelos" value="Ryanair" />
+          <Row icon={Bus} label="Buses y trenes" value="FlixBus" />
+          <Row icon={Landmark} label="Tipos de cambio" value={rates?.date ? `BCE · ${rates.date}` : 'BCE'} />
+          <Row icon={Image} label="Fotos" value="Wikipedia / Unsplash" />
         </Group>
 
         {/* Instalación PWA */}
@@ -106,7 +107,7 @@ export function ProfileView() {
           />
         </Group>
 
-        <p className="pb-4 text-center text-xs text-slate-400">Chollo v1.0 · Datos de demostración</p>
+        <p className="pb-4 text-center text-xs text-slate-400">Chollo v2.0 · Precios reales consultados en directo</p>
       </div>
 
       <BottomSheet open={sheet === 'currency'} onClose={() => setSheet(null)} title="Moneda">
@@ -121,7 +122,7 @@ export function ProfileView() {
       </BottomSheet>
       <BottomSheet open={sheet === 'origin'} onClose={() => setSheet(null)} title="Aeropuerto de origen">
         <OptionList
-          options={ORIGINS.map((o) => ({ value: o.code, label: o.city, hint: o.code }))}
+          options={origins.map((o) => ({ value: o.code, label: o.city, hint: o.code }))}
           value={origin}
           onChange={(v) => {
             setOrigin(v)

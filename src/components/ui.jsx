@@ -2,7 +2,7 @@
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Heart, Trash2, Bell, X, Info } from 'lucide-react'
-import { TAGS } from '../data/mockData'
+import { TAGS } from '../data/constants'
 import { cx } from '../lib/format'
 import { useApp } from '../context/AppContext'
 
@@ -19,7 +19,7 @@ export function DealTag({ tag, className }) {
   const t = TAGS[tag]
   if (!t) return null
   return (
-    <span className={cx('inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold tracking-tight shadow-md backdrop-blur', TONES[t.tone], className)}>
+    <span title={t.hint} className={cx('inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-bold tracking-tight shadow-md backdrop-blur', TONES[t.tone], className)}>
       {t.label}
     </span>
   )
