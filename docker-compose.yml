@@ -1,0 +1,11 @@
+services:
+  viajes-baratos-app:
+    build: .
+    image: viajes-baratos-app:latest
+    container_name: viajes-baratos-app
+    restart: unless-stopped
+    ports:
+      # Puerto del host configurable: APP_PORT=8030 docker compose up -d --build
+      - "${APP_PORT:-8020}:80"
+    environment:
+      - TZ=Europe/Madrid

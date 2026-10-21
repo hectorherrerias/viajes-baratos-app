@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* Modo oscuro controlado por la clase .dark en <html> */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Plus Jakarta Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  /* Paleta de marca */
+  --color-brand-50: #f2efff;
+  --color-brand-100: #e5dfff;
+  --color-brand-200: #cbbfff;
+  --color-brand-300: #ab98ff;
+  --color-brand-400: #8f74ff;
+  --color-brand-500: #7c5cff;
+  --color-brand-600: #6a43f5;
+  --color-brand-700: #5932d6;
+  --color-brand-800: #4729a8;
+  --color-brand-900: #33207a;
+
+  /* Superficies (claro) */
+  --color-canvas: #f6f7fb;
+  --color-surface: #ffffff;
+  /* Superficies (oscuro) */
+  --color-ink-950: #070a14;
+  --color-ink-900: #0b1020;
+  --color-ink-800: #121830;
+  --color-ink-700: #1b2240;
+  --color-ink-600: #2a3256;
+
+  --animate-fade-up: fade-up 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-slide-in: slide-in 0.35s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-sheet-up: sheet-up 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  --animate-fade-in: fade-in 0.2s ease-out both;
+  --animate-pop: pop 0.35s cubic-bezier(0.2, 0.8, 0.2, 1.4) both;
+
+  @keyframes fade-up {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes slide-in {
+    from { opacity: 0.6; transform: translateX(100%); }
+    to { opacity: 1; transform: none; }
+  }
+  @keyframes sheet-up {
+    from { transform: translateY(100%); }
+    to { transform: none; }
+  }
+  @keyframes fade-in {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+  @keyframes pop {
+    0% { transform: scale(1); }
+    40% { transform: scale(1.3); }
+    100% { transform: scale(1); }
+  }
+}
+
+@layer base {
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-slate-200 font-sans text-slate-900 antialiased dark:bg-ink-950 dark:text-slate-100;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button { cursor: pointer; }
+  input[type='range'] { accent-color: var(--color-brand-500); }
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { scrollbar-width: none; }
+  .pb-safe { padding-bottom: max(env(safe-area-inset-bottom), 0.5rem); }
+  .pt-safe { padding-top: env(safe-area-inset-top); }
+  .stagger > * { animation: var(--animate-fade-up); }
+  .stagger > *:nth-child(2) { animation-delay: 40ms; }
+  .stagger > *:nth-child(3) { animation-delay: 80ms; }
+  .stagger > *:nth-child(4) { animation-delay: 120ms; }
+  .stagger > *:nth-child(5) { animation-delay: 160ms; }
+  .stagger > *:nth-child(n + 6) { animation-delay: 200ms; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
