@@ -14,3 +14,6 @@ services:
       - TZ=Europe/Madrid
       # Aeropuertos que se consultan en segundo plano cada 3 h para construir el histórico
       - WARM_ORIGINS=${WARM_ORIGINS:-MAD,BCN,VLC,AGP,SVQ,ALC}
+      # Avisos de alertas de precio por Telegram (los valores van en .env, nunca en git)
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID:-}

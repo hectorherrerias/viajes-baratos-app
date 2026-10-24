@@ -14,7 +14,7 @@ const NOTIF_STYLE = {
 }
 
 export function AlertsView({ onOpen }) {
-  const { alerts, toggleAlert, removeAlert, price, origin, cityOf, prefs } = useApp()
+  const { alerts, toggleAlert, removeAlert, price, origin, cityOf, prefs, telegram } = useApp()
   const [creating, setCreating] = useState(false)
 
   // Precio actual real de cada ruta vigilada
@@ -70,7 +70,7 @@ export function AlertsView({ onOpen }) {
       </section>
 
       <section className="mt-7">
-        <SectionHeader title="Rutas vigiladas" subtitle={`${alerts.filter((a) => a.active).length} activas · ida y vuelta, próximos 3 meses`} action="+ Nueva" onAction={() => setCreating(true)} />
+        <SectionHeader title="Rutas vigiladas" subtitle={`${alerts.filter((a) => a.active).length} activas · ida y vuelta, próximos 3 meses${telegram ? " · 📲 te aviso por Telegram" : ""}`} action="+ Nueva" onAction={() => setCreating(true)} />
         {alerts.length === 0 ? (
           <EmptyState icon={BellRing} title="Sin alertas" text="Crea una alerta y te avisaremos cuando el precio baje de tu objetivo." action="Crear alerta" onAction={() => setCreating(true)} />
         ) : (

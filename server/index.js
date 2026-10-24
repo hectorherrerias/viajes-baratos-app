@@ -8,6 +8,7 @@ import {
   airports, routes, cheapestRoundTrip, perDay, buses, rates, cityImage, ryanairUrl, addDays, today, flightMinutes,
 } from './providers.js'
 import { record, assess, series } from './history.js'
+import { setAlerts, checkAlerts, telegramEnabled } from './alerts.js'
 
 const PORT = Number(process.env.PORT ?? 3000)
 const DIST = path.resolve(process.env.DIST_DIR ?? 'dist')
@@ -242,6 +243,11 @@ async function warm() {
 setTimeout(warm, 3000).unref()
 setInterval(warm, 3 * 3600_000).unref()
 
+// Alertas de precio: comprobación periódica con aviso por Telegram
+const runAlerts = () => checkAlerts(routePrices).catch((e) => console.warn(`[alertas] ${e.message}`))
+setTimeout(runAlerts, 60_000).unref()
+setInterval(runAlerts, 3 * 3600_000).unref()
+
 // --- Router de la API -----------------------------------------------------------
 
 const IATA = /^[A-Z]{3}$/
@@ -269,7 +275,7 @@ function params(url) {
 const badRequest = (msg) => Object.assign(new Error(msg), { status: 400 })
 
 const API = {
-  '/api/status': async () => ({ ok: true, sources: ['Ryanair', 'FlixBus', 'BCE (Frankfurter)', 'Wikipedia'], warm: WARM_ORIGINS }),
+  '/api/status': async () => ({ ok: true, sources: ['Ryanair', 'FlixBus', 'BCE (Frankfurter)', 'Wikipedia'], warm: WARM_ORIGINS, telegram: telegramEnabled() }),
   '/api/rates': () => rates(),
   '/api/airports': async (url) => {
     const A = await airports()
@@ -364,6 +370,19 @@ function serveStatic(req, res, pathname) {
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost')
   try {
+    // La app sincroniza aquí sus alertas para que el servidor las vigile y avise por Telegram
+    if (url.pathname === '/api/alerts' && req.method === 'PUT') {
+      const chunks = []
+      let size = 0
+      for await (const c of req) {
+        size += c.length
+        if (size > 100_000) throw Object.assign(new Error('Demasiado grande'), { status: 400 })
+        chunks.push(c)
+      }
+      let body
+      try { body = JSON.parse(Buffer.concat(chunks).toString('utf-8')) } catch { throw badRequest('JSON no válido') }
+      return send(res, 200, 'application/json; charset=utf-8', JSON.stringify(setAlerts(body.device, body.alerts)), req, { 'Cache-Control': 'no-store' })
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') return send(res, 405, 'text/plain', 'Método no permitido')
     if (url.pathname.startsWith('/api/image/')) return await handleImage(res, url.pathname.slice(11))
     const handler = API[url.pathname]

@@ -68,17 +68,35 @@ export function AppProvider({ children }) {
   const toggleAlert = useCallback((id) => setAlerts((p) => p.map((a) => (a.id === id ? { ...a, active: !a.active } : a))), [setAlerts])
   const removeAlert = useCallback((id) => setAlerts((p) => p.filter((a) => a.id !== id)), [setAlerts])
 
+  // El servidor vigila las alertas y avisa por Telegram: se le envía la lista de este dispositivo
+  // cada vez que cambia (y al abrir la app). deviceId distingue iPhone, iPad, PC...
+  const [deviceId] = useLocalStorage('vb:device', `dev-${Math.random().toString(36).slice(2, 10)}`)
+  const [telegram, setTelegram] = useState(false)
+  useEffect(() => {
+    const t = setTimeout(() => {
+      fetch('/api/alerts', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: deviceId, alerts }),
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => setTelegram(Boolean(d?.telegram)))
+        .catch(() => {})
+    }, 800)
+    return () => clearTimeout(t)
+  }, [alerts, deviceId])
+
   const cityOf = useCallback((code) => origins.find((o) => o.code === code)?.city ?? code, [origins])
 
   const value = useMemo(
     () => ({
       theme, setTheme, currency, setCurrency, origin, setOrigin, origins, cityOf, rates,
       favorites, isFavorite, toggleFavorite,
-      alerts, addAlert, toggleAlert, removeAlert,
+      alerts, addAlert, toggleAlert, removeAlert, telegram,
       prefs, setPrefs,
       toast, notify, price,
     }),
-    [theme, setTheme, currency, setCurrency, origin, setOrigin, origins, cityOf, rates, favorites, isFavorite, toggleFavorite, alerts, addAlert, toggleAlert, removeAlert, prefs, setPrefs, toast, notify, price]
+    [theme, setTheme, currency, setCurrency, origin, setOrigin, origins, cityOf, rates, favorites, isFavorite, toggleFavorite, alerts, addAlert, toggleAlert, removeAlert, telegram, prefs, setPrefs, toast, notify, price]
   )
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>
